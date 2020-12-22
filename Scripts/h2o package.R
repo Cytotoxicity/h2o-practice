@@ -5,6 +5,7 @@ h2o.no_progress()
 
 data_origin <- as.h2o(read.csv("Data/train.csv"))
 data_csv <- read.csv("Data/train.csv")
+data_csv <- data_csv %>% select(-index)
 data_csv$voted <- as.factor(data_csv$voted)
 
 h2o.ls()
@@ -21,14 +22,34 @@ x <- setdiff(names(data_train), y)
 tmp <- h2o.automl(y=y, x=x, training_frame=data_train, max_runtime_secs_per_model = 60, max_models = 3, validation_frame = data_test, 
                   nfolds=5, stopping_metric = "AUC")
 
-model <- h2o.automl(voted~., training_frame=data_train, max_runtime_secs_per_model = 60, max_models = 15, validation_frame = data_test, 
+model <- h2o.automl(y=y, x=x, training_frame=data_train, max_runtime_secs_per_model = 60, max_models = 10, validation_frame = data_test, 
                     nfolds=5, stopping_metric = "AUC")
 
-tmp@leader
-tmp_pred <- h2o.predict(object=tmp@leader, newdata=data_lead)
+model@leaderboard
+model_ids <- as.data.frame(model@leaderboard$model_id)[,1]
+stacked_ensemble_model <- h2o.getModel(grep("StackedEnsemble_AllModels", model_ids, value = TRUE)[1]) #pre-processing 아직 잘 안 됨
+h2o.getId()
 
-tmp_result <- as.data.frame(tmp_pred$predict)
-colnames(tmp_result) <- c("voted")
-tmp_result$index <- c(0:11382)
+metalearner <- h2o.getModel(stacked_ensemble_model@model$metalearner$name)
 
-write.csv(tmp_result, "Outputs/test.csv")
+stacked_ensemble_model@allparameters
+
+h2o.varimp_plot(metalearner)
+
+### 시각화
+h2o.varimp(metalearner) %>% DT::datatable()
+
+model@leader
+
+#어떻게 선택된 알고리즘으로 다른 데이터를 학습시킴?
+finalmodel <- h2o.stackedEnsemble(x=x, y=x, training_frame = data_csv, metal)
+
+model_pred <- h2o.predict(object=model@leader, newdata=data_lead)
+
+model_result <- as.data.frame(model_pred$predict)
+colnames(model_result) <- c("voted")
+model_result$index <- c(0:11382)
+
+write.csv(model_result, "Outputs/test.csv")
+
+h2o.shutdown(prompt = F)
